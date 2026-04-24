@@ -921,7 +921,7 @@ export default function App() {
 
   const resetAuthForm = (role = authRole, mode = authMode) => {
     const defaults = mode === "register"
-      ? { name: role === "canteen" ? "Staff Member" : "", mobile: "", password: "" }
+      ? { name: "", mobile: "", password: "" }
       : { name: "", mobile: "", password: "" };
     setAuthForm(defaults);
     setAuthMessage("");
@@ -929,7 +929,11 @@ export default function App() {
 
   const switchRole = (role) => {
     setAuthRole(role);
-    resetAuthForm(role, authMode);
+    const nextMode = role === "canteen" ? "login" : authMode;
+    if (role === "canteen" && authMode !== "login") {
+      setAuthMode("login");
+    }
+    resetAuthForm(role, nextMode);
   };
 
   const switchMode = (mode) => {
@@ -960,6 +964,11 @@ export default function App() {
     }
 
     try {
+      if (authRole === "canteen" && authMode !== "login") {
+        setAuthMessage("Staff accounts can only sign in with the assigned mobile number and password.");
+        return;
+      }
+
       if (authMode === "login") {
         const response = await api.login({ role: authRole, mobile, password });
         setSession(response.session);
@@ -1054,7 +1063,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
             {[
               ["login", "Login"],
-              ["register", "Register"],
+              ...(authRole === "student" ? [["register", "Register"]] : []),
             ].map(([mode, label]) => (
               <button
                 key={mode}
@@ -1077,10 +1086,12 @@ export default function App() {
           </div>
 
           <div style={{ fontWeight: 900, fontSize: 24, marginBottom: 8 }}>
-            {authMode === "login" ? "Welcome back" : "Create your account"}
+            {authRole === "canteen" || authMode === "login" ? "Welcome back" : "Create your account"}
           </div>
           <div style={{ color: COLORS.muted, fontSize: 14, marginBottom: 22 }}>
-            {authRole === "student" ? "Student" : "Canteen staff"} access with mobile number and password.
+            {authRole === "student"
+              ? "Student access with mobile number and password."
+              : "Canteen staff can sign in only with the assigned mobile number and password."}
           </div>
 
           <div style={{ display: "grid", gap: 14 }}>

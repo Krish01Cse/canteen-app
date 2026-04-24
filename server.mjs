@@ -286,6 +286,10 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && pathname === "/api/auth/register") {
       const { role, name, mobile, password } = await readJsonBody(req);
+      if (role === "canteen") {
+        sendJson(req, res, 403, { error: "Staff registration is disabled. Use the assigned staff login credentials." });
+        return;
+      }
       const existing = db.prepare("SELECT 1 FROM users WHERE role = ? AND mobile = ?").get(role, mobile);
       if (existing) {
         sendJson(req, res, 409, { error: "This mobile number is already registered." });
