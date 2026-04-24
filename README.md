@@ -1,12 +1,9 @@
 # CanteenX
 
-This app now stores all persistent data in SQLite instead of `localStorage`.
+This project has two backend paths now:
 
-## Deployment status
-
-- `npm run lint` passes
-- `npm run build` passes
-- the Node server can now serve both the API and the built frontend in production
+- local development can still use the SQLite-backed Node server
+- Vercel deployment uses `/api` serverless functions backed by hosted Postgres
 
 ## Persisted data
 
@@ -15,35 +12,36 @@ This app now stores all persistent data in SQLite instead of `localStorage`.
 - pickup time slots
 - orders and order items
 
-The database file is created at [canteen.sqlite](/Users/krish_01/Downloads/project/canteen-app/canteen.sqlite).
+## Local development
 
-## Run locally
+Run locally with the existing SQLite server:
 
 1. `npm run dev:full`
 2. Open the Vite URL shown in the terminal
 
-That starts both the React frontend and the SQLite-backed Node API.
+That uses [canteen.sqlite](/Users/krish_01/Downloads/project/canteen-app/canteen.sqlite) for local persistence.
 
-If you want to run them separately:
+## Vercel deployment
 
-- `npm run server`
-- `npm run dev`
+Vercel does not support local SQLite for persistent server-side writes. The deployed app now expects a hosted Postgres-compatible database through:
 
-## Deploy
+- `DATABASE_URL`, or
+- `POSTGRES_URL`
 
-This app requires Node 24+ because it uses the built-in `node:sqlite` module.
+Recommended setup:
 
-1. `npm install`
-2. `npm run build`
-3. `npm start`
+1. In Vercel, open your project
+2. Add a Marketplace Postgres integration such as Neon
+3. Confirm Vercel injects `DATABASE_URL` or `POSTGRES_URL`
+4. Redeploy the project
 
-The production server serves:
+The Vercel deployment uses:
 
-- frontend assets from `dist/`
-- API routes under `/api/*`
-- a health endpoint at `/health`
+- static frontend from `dist/`
+- serverless API routes under `/api/*`
+- `/health` for a simple health check
 
-Optional environment variables:
+## Useful checks
 
-- `PORT` to change the server port
-- `DB_PATH` to store the SQLite database in a custom location
+- `npm run lint`
+- `npm run build`
