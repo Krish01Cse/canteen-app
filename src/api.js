@@ -24,6 +24,7 @@ export const api = {
   updateOrderStatus: (id, status) => request(`/api/orders/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
   toggleSlot: (id) => request(`/api/slots/${id}/toggle`, { method: "PATCH" }),
   adjustSlotCapacity: (id, delta) => request(`/api/slots/${id}/capacity`, { method: "PATCH", body: JSON.stringify({ delta }) }),
+  updateSlotLabel: (id, label) => request(`/api/slots/${id}/label`, { method: "PATCH", body: JSON.stringify({ label }) }),
   toggleMenuItem: (id) => request(`/api/menu/${id}/toggle`, { method: "PATCH" }),
   saveMenuItem: (body) => request("/api/menu", { method: "POST", body: JSON.stringify(body) }),
 };

@@ -182,11 +182,6 @@ if (countTable("time_slots") === 0) {
   DEFAULT_TIME_SLOTS.forEach((slot) => insertSlot.run(slot.id, slot.label, slot.capacity, slot.booked, slot.active ? 1 : 0));
 }
 
-const updateSlotLabel = db.prepare("UPDATE time_slots SET label = ? WHERE id = ?");
-buildDynamicTimeSlots().forEach((slot) => {
-  updateSlotLabel.run(slot.label, slot.id);
-});
-
 if (countTable("menu_items") === 0) {
   const insertItem = db.prepare("INSERT INTO menu_items (id, name, cat, price, time, emoji, desc, popular, veg, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   DEFAULT_MENU_ITEMS.forEach((item) => {
@@ -490,6 +485,24 @@ const server = http.createServer(async (req, res) => {
       }
       const nextCapacity = Math.max(slot.booked, slot.capacity + Number(delta || 0), 1);
       db.prepare("UPDATE time_slots SET capacity = ? WHERE id = ?").run(nextCapacity, slotCapacityMatch[1]);
+      sendJson(req, res, 200, { timeSlots: getTimeSlots() });
+      return;
+    }
+
+    const slotLabelMatch = pathname.match(/^\/api\/slots\/([^/]+)\/label$/);
+    if (req.method === "PATCH" && slotLabelMatch) {
+      const { label } = await readJsonBody(req);
+      const nextLabel = String(label || "").trim();
+      const slot = db.prepare("SELECT id FROM time_slots WHERE id = ?").get(slotLabelMatch[1]);
+      if (!slot) {
+        sendJson(req, res, 404, { error: "Slot not found." });
+        return;
+      }
+      if (!nextLabel) {
+        sendJson(req, res, 400, { error: "Slot time label is required." });
+        return;
+      }
+      db.prepare("UPDATE time_slots SET label = ? WHERE id = ?").run(nextLabel, slotLabelMatch[1]);
       sendJson(req, res, 200, { timeSlots: getTimeSlots() });
       return;
     }

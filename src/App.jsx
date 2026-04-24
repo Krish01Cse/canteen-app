@@ -513,11 +513,13 @@ function StudentPortal({ currentUser, onLogout, timeSlots, menuItems, orders, on
 }
 
 // ── CANTEEN DASHBOARD ────────────────────────────────────────────────────────
-function CanteenDashboard({ currentUser, onLogout, timeSlots, menuItems, onToggleSlot, onAdjustSlotCapacity, onToggleMenuItem, onSaveMenuItem, orders, onUpdateOrderStatus }) {
+function CanteenDashboard({ currentUser, onLogout, timeSlots, menuItems, onToggleSlot, onAdjustSlotCapacity, onUpdateSlotLabel, onToggleMenuItem, onSaveMenuItem, orders, onUpdateOrderStatus }) {
   const [activeTab, setActiveTab] = useState("orders"); // orders | analytics | menu | slots
   const [notif, setNotif] = useState(null);
   const [menuDraft, setMenuDraft] = useState(createMenuDraft());
   const [menuFormMode, setMenuFormMode] = useState("add");
+  const [editingSlotId, setEditingSlotId] = useState(null);
+  const [slotLabelDraft, setSlotLabelDraft] = useState("");
 
   const updateStatus = async (id, status) => {
     try {
@@ -576,6 +578,35 @@ function CanteenDashboard({ currentUser, onLogout, timeSlots, menuItems, onToggl
       resetMenuDraft();
     } catch (error) {
       setNotif(error.message || "Unable to save menu item");
+      setTimeout(() => setNotif(null), 2500);
+    }
+  };
+
+  const startEditingSlot = (slot) => {
+    setEditingSlotId(slot.id);
+    setSlotLabelDraft(slot.label);
+  };
+
+  const cancelSlotEdit = () => {
+    setEditingSlotId(null);
+    setSlotLabelDraft("");
+  };
+
+  const submitSlotEdit = async (slotId) => {
+    const nextLabel = slotLabelDraft.trim();
+    if (!nextLabel) {
+      setNotif("Enter a slot time before saving");
+      setTimeout(() => setNotif(null), 2500);
+      return;
+    }
+
+    try {
+      await onUpdateSlotLabel(slotId, nextLabel);
+      setNotif("Time slot updated");
+      setTimeout(() => setNotif(null), 2500);
+      cancelSlotEdit();
+    } catch (error) {
+      setNotif(error.message || "Unable to update time slot");
       setTimeout(() => setNotif(null), 2500);
     }
   };
@@ -821,11 +852,21 @@ function CanteenDashboard({ currentUser, onLogout, timeSlots, menuItems, onToggl
             <div style={{ display: "grid", gap: 14 }}>
               {timeSlots.map((slot) => {
                 const remaining = Math.max(slot.capacity - slot.booked, 0);
+                const isEditing = editingSlotId === slot.id;
                 return (
                   <div key={slot.id} style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                        <span style={{ fontWeight: 900, fontSize: 16 }}>{slot.label}</span>
+                        {isEditing ? (
+                          <input
+                            value={slotLabelDraft}
+                            onChange={(e) => setSlotLabelDraft(e.target.value)}
+                            placeholder="e.g. 5:15 PM - 5:30 PM"
+                            style={{ minWidth: 220, background: COLORS.surface, border: `1px solid ${COLORS.accent}`, borderRadius: 10, padding: "10px 12px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
+                          />
+                        ) : (
+                          <span style={{ fontWeight: 900, fontSize: 16 }}>{slot.label}</span>
+                        )}
                         <Badge color={slot.active ? COLORS.green : COLORS.red}>{slot.active ? "Active" : "Closed"}</Badge>
                       </div>
                       <div style={{ fontSize: 13, color: COLORS.muted }}>Booked {slot.booked} of {slot.capacity} slots</div>
@@ -837,6 +878,16 @@ function CanteenDashboard({ currentUser, onLogout, timeSlots, menuItems, onToggl
                         <span style={{ minWidth: 80, textAlign: "center", fontWeight: 800, fontSize: 13 }}>Capacity {slot.capacity}</span>
                         <button onClick={() => onAdjustSlotCapacity(slot.id, 1)} style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 18, cursor: "pointer", fontWeight: 900 }}>+</button>
                       </div>
+                      {isEditing ? (
+                        <>
+                          <Btn onClick={() => submitSlotEdit(slot.id)} style={{ padding: "9px 16px" }}>Save Time</Btn>
+                          <Btn onClick={cancelSlotEdit} variant="ghost" style={{ padding: "9px 16px" }}>Cancel</Btn>
+                        </>
+                      ) : (
+                        <Btn onClick={() => startEditingSlot(slot)} variant="ghost" style={{ padding: "9px 16px" }}>
+                          Edit Time
+                        </Btn>
+                      )}
                       <Btn onClick={() => onToggleSlot(slot.id)} variant={slot.active ? "ghost" : "success"} style={{ padding: "9px 16px" }}>
                         {slot.active ? "Close Slot" : "Open Slot"}
                       </Btn>
@@ -895,6 +946,11 @@ export default function App() {
 
   const adjustSlotCapacity = async (slotId, delta) => {
     const data = await api.adjustSlotCapacity(slotId, delta);
+    setTimeSlots(data.timeSlots || []);
+  };
+
+  const updateSlotLabel = async (slotId, label) => {
+    const data = await api.updateSlotLabel(slotId, label);
     setTimeSlots(data.timeSlots || []);
   };
 
@@ -1077,7 +1133,7 @@ export default function App() {
   }
 
   if (session?.role === "student") return <StudentPortal currentUser={session} onLogout={handleLogout} timeSlots={timeSlots} menuItems={menuItems} orders={orders.filter((order) => order.student === session.name)} onPlaceOrder={placeOrder} onUpdateOrderStatus={updateOrderStatus} />;
-  if (session?.role === "canteen") return <CanteenDashboard currentUser={session} onLogout={handleLogout} timeSlots={timeSlots} menuItems={menuItems} onToggleSlot={toggleSlot} onAdjustSlotCapacity={adjustSlotCapacity} onToggleMenuItem={toggleMenuItem} onSaveMenuItem={saveMenuItem} orders={orders} onUpdateOrderStatus={updateOrderStatus} />;
+  if (session?.role === "canteen") return <CanteenDashboard currentUser={session} onLogout={handleLogout} timeSlots={timeSlots} menuItems={menuItems} onToggleSlot={toggleSlot} onAdjustSlotCapacity={adjustSlotCapacity} onUpdateSlotLabel={updateSlotLabel} onToggleMenuItem={toggleMenuItem} onSaveMenuItem={saveMenuItem} orders={orders} onUpdateOrderStatus={updateOrderStatus} />;
 
   return (
     <div style={{ minHeight: "100vh", background: COLORS.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Outfit', sans-serif", color: COLORS.text, padding: 24 }}>
