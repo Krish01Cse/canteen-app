@@ -859,8 +859,9 @@ export default function App() {
   const [menuItems, setMenuItems] = useState([]);
   const [authRole, setAuthRole] = useState("student");
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ name: "", mobile: "", password: "" });
+  const [authForm, setAuthForm] = useState({ name: "", mobile: "", password: "", otp: "", confirmPassword: "" });
   const [authMessage, setAuthMessage] = useState("");
+  const [resetOtpState, setResetOtpState] = useState({ requestId: "", expiresAt: "", demoOtp: "" });
   const [session, setSession] = useState(null);
   const [isHydrating, setIsHydrating] = useState(true);
 
@@ -921,10 +922,14 @@ export default function App() {
 
   const resetAuthForm = (role = authRole, mode = authMode) => {
     const defaults = mode === "register"
-      ? { name: "", mobile: "", password: "" }
-      : { name: "", mobile: "", password: "" };
+      ? { name: "", mobile: "", password: "", otp: "", confirmPassword: "" }
+      : { name: "", mobile: "", password: "", otp: "", confirmPassword: "" };
     setAuthForm(defaults);
     setAuthMessage("");
+  };
+
+  const clearResetOtpState = () => {
+    setResetOtpState({ requestId: "", expiresAt: "", demoOtp: "" });
   };
 
   const switchRole = (role) => {
@@ -933,11 +938,13 @@ export default function App() {
     if (role === "canteen" && authMode !== "login") {
       setAuthMode("login");
     }
+    clearResetOtpState();
     resetAuthForm(role, nextMode);
   };
 
   const switchMode = (mode) => {
     setAuthMode(mode);
+    clearResetOtpState();
     resetAuthForm(authRole, mode);
   };
 
@@ -949,10 +956,76 @@ export default function App() {
     setAuthMessage("");
   };
 
+  const sendPasswordResetOtp = async (mobile) => {
+    const response = await api.requestPasswordReset({ role: authRole, mobile });
+    setResetOtpState({
+      requestId: response.requestId || "",
+      expiresAt: response.expiresAt || "",
+      demoOtp: response.demoOtp || "",
+    });
+    setAuthForm((current) => ({
+      ...current,
+      mobile,
+      otp: "",
+      password: "",
+      confirmPassword: "",
+    }));
+  };
+
   const handleAuthSubmit = async () => {
     const mobile = normalizeMobile(authForm.mobile);
     const password = authForm.password.trim();
     const name = authForm.name.trim();
+    const otp = authForm.otp.trim();
+    const confirmPassword = authForm.confirmPassword.trim();
+
+    if (authMode === "forgot") {
+      if (authRole === "canteen") {
+        setAuthMessage("Staff password reset is disabled. Use the assigned staff login credentials.");
+        return;
+      }
+
+      if (mobile.length !== 10) {
+        setAuthMessage("Enter a valid 10-digit mobile number.");
+        return;
+      }
+
+      try {
+        if (!resetOtpState.requestId) {
+          await sendPasswordResetOtp(mobile);
+          setAuthMessage("OTP sent. Enter the code and choose a new password.");
+          return;
+        }
+
+        if (!/^\d{6}$/.test(otp)) {
+          setAuthMessage("Enter the 6-digit OTP.");
+          return;
+        }
+        if (password.length < 4) {
+          setAuthMessage("New password must be at least 4 characters.");
+          return;
+        }
+        if (password !== confirmPassword) {
+          setAuthMessage("Passwords do not match.");
+          return;
+        }
+
+        await api.resetPasswordWithOtp({
+          role: authRole,
+          mobile,
+          requestId: resetOtpState.requestId,
+          otp,
+          newPassword: password,
+        });
+        clearResetOtpState();
+        setAuthMode("login");
+        setAuthForm({ name: "", mobile, password: "", otp: "", confirmPassword: "" });
+        setAuthMessage("Password reset successful. You can log in now.");
+      } catch (error) {
+        setAuthMessage(error.message || "Unable to reset password.");
+      }
+      return;
+    }
 
     if (mobile.length !== 10) {
       setAuthMessage("Enter a valid 10-digit mobile number.");
@@ -1064,6 +1137,7 @@ export default function App() {
             {[
               ["login", "Login"],
               ...(authRole === "student" ? [["register", "Register"]] : []),
+              ...(authRole === "student" ? [["forgot", "Forgot Password"]] : []),
             ].map(([mode, label]) => (
               <button
                 key={mode}
@@ -1086,10 +1160,16 @@ export default function App() {
           </div>
 
           <div style={{ fontWeight: 900, fontSize: 24, marginBottom: 8 }}>
-            {authRole === "canteen" || authMode === "login" ? "Welcome back" : "Create your account"}
+            {authMode === "forgot"
+              ? "Reset your password"
+              : authRole === "canteen" || authMode === "login"
+                ? "Welcome back"
+                : "Create your account"}
           </div>
           <div style={{ color: COLORS.muted, fontSize: 14, marginBottom: 22 }}>
-            {authRole === "student"
+            {authMode === "forgot"
+              ? "We will verify your mobile number with a 6-digit OTP before changing your password."
+              : authRole === "student"
               ? "Student access with mobile number and password."
               : "Canteen staff can sign in only with the assigned mobile number and password."}
           </div>
@@ -1118,17 +1198,65 @@ export default function App() {
               />
             </div>
 
-            <div>
-              <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>Password</div>
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(e) => updateAuthField("password", e.target.value)}
-                placeholder="Enter password"
-                style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
-              />
-            </div>
+            {authMode === "forgot" && resetOtpState.requestId && (
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>OTP</div>
+                <input
+                  value={authForm.otp}
+                  onChange={(e) => updateAuthField("otp", e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="Enter 6-digit OTP"
+                  inputMode="numeric"
+                  style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
+                />
+              </div>
+            )}
+
+            {authMode !== "forgot" && (
+              <div>
+                <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>Password</div>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(e) => updateAuthField("password", e.target.value)}
+                  placeholder="Enter password"
+                  style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
+                />
+              </div>
+            )}
+
+            {authMode === "forgot" && resetOtpState.requestId && (
+              <>
+                <div>
+                  <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>New Password</div>
+                  <input
+                    type="password"
+                    value={authForm.password}
+                    onChange={(e) => updateAuthField("password", e.target.value)}
+                    placeholder="Choose a new password"
+                    style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 6 }}>Confirm Password</div>
+                  <input
+                    type="password"
+                    value={authForm.confirmPassword}
+                    onChange={(e) => updateAuthField("confirmPassword", e.target.value)}
+                    placeholder="Re-enter new password"
+                    style={{ width: "100%", background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "12px 14px", color: COLORS.text, fontSize: 14, outline: "none", fontFamily: "inherit" }}
+                  />
+                </div>
+              </>
+            )}
           </div>
+
+          {authMode === "forgot" && resetOtpState.demoOtp && (
+            <div style={{ marginTop: 16, background: `${COLORS.gold}14`, border: `1px solid ${COLORS.gold}44`, color: COLORS.text, borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.6 }}>
+              Demo OTP: <strong>{resetOtpState.demoOtp}</strong><br />
+              This is shown on screen for now. Later, the same flow can send the OTP by SMS.
+            </div>
+          )}
 
           {authMessage && (
             <div style={{ marginTop: 16, background: `${COLORS.red}14`, border: `1px solid ${COLORS.red}44`, color: "#FCA5A5", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>
@@ -1137,10 +1265,36 @@ export default function App() {
           )}
 
           <Btn onClick={handleAuthSubmit} style={{ width: "100%", marginTop: 18, padding: "14px", fontSize: 15 }}>
-            {authMode === "login"
+            {authMode === "forgot"
+              ? resetOtpState.requestId
+                ? "Verify OTP & Reset Password"
+                : "Send OTP"
+              : authMode === "login"
               ? `Login as ${authRole === "student" ? "Student" : "Canteen Staff"}`
               : `Register ${authRole === "student" ? "Student" : "Canteen Staff"} Account`}
           </Btn>
+
+          {authMode === "forgot" && resetOtpState.requestId && (
+            <Btn
+              onClick={async () => {
+                try {
+                  const mobile = normalizeMobile(authForm.mobile);
+                  if (mobile.length !== 10) {
+                    setAuthMessage("Enter a valid 10-digit mobile number.");
+                    return;
+                  }
+                  await sendPasswordResetOtp(mobile);
+                  setAuthMessage("A new OTP has been generated.");
+                } catch (error) {
+                  setAuthMessage(error.message || "Unable to resend OTP.");
+                }
+              }}
+              variant="ghost"
+              style={{ width: "100%", marginTop: 10, padding: "12px", fontSize: 14 }}
+            >
+              Resend OTP
+            </Btn>
+          )}
         </div>
       </div>
 

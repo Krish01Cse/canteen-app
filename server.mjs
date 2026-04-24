@@ -1,6 +1,6 @@
 import http from "node:http";
 import { URL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +67,8 @@ const DEFAULT_ORDERS = [
   { id: "ORD-003", student: "Priya Nair", items: [{ name: "Chicken Biryani", qty: 1, price: 120 }], total: 120, status: "pending", time: "10:31 AM", token: "T-13", pickupSlot: "11:00 AM - 11:15 AM", pickupSlotId: "slot-3", paymentStatus: "paid", paymentId: "demo-payment-3" },
 ];
 
+const RESET_OTP_TTL_MINUTES = 10;
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +121,16 @@ db.exec(`
     qty INTEGER NOT NULL,
     price INTEGER NOT NULL,
     FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS password_reset_requests (
+    id TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    mobile TEXT NOT NULL,
+    otp TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -247,6 +259,69 @@ const getNextToken = () => {
 };
 
 const formatTime = () => new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+const generateOtp = () => String(randomInt(0, 1000000)).padStart(6, "0");
+const nowIso = () => new Date().toISOString();
+
+const requestPasswordReset = ({ role, mobile }) => {
+  if (role === "canteen") {
+    throw new Error("Staff password reset is disabled. Use the assigned staff login credentials.");
+  }
+
+  const user = db.prepare("SELECT role, mobile FROM users WHERE role = ? AND mobile = ?").get(role, mobile);
+  if (!user) {
+    throw new Error("No student account matched that mobile number.");
+  }
+
+  const requestId = randomUUID();
+  const otp = generateOtp();
+  const expiresAt = new Date(Date.now() + RESET_OTP_TTL_MINUTES * 60 * 1000).toISOString();
+
+  db.prepare("DELETE FROM password_reset_requests WHERE expires_at <= ?").run(nowIso());
+  db.prepare("DELETE FROM password_reset_requests WHERE role = ? AND mobile = ? AND consumed_at IS NULL").run(role, mobile);
+  db.prepare("INSERT INTO password_reset_requests (id, role, mobile, otp, expires_at) VALUES (?, ?, ?, ?, ?)").run(requestId, role, mobile, otp, expiresAt);
+
+  return {
+    requestId,
+    expiresAt,
+    delivery: "demo",
+    demoOtp: otp,
+  };
+};
+
+const resetPasswordWithOtp = ({ role, mobile, requestId, otp, newPassword }) => {
+  if (role === "canteen") {
+    throw new Error("Staff password reset is disabled. Use the assigned staff login credentials.");
+  }
+  if (!newPassword || newPassword.trim().length < 4) {
+    throw new Error("Password must be at least 4 characters.");
+  }
+
+  db.prepare("DELETE FROM password_reset_requests WHERE expires_at <= ?").run(nowIso());
+
+  const resetRequest = db.prepare(`
+    SELECT id, consumed_at
+    FROM password_reset_requests
+    WHERE id = ? AND role = ? AND mobile = ? AND otp = ?
+    LIMIT 1
+  `).get(requestId, role, mobile, otp);
+
+  if (!resetRequest) {
+    throw new Error("Invalid or expired OTP.");
+  }
+  if (resetRequest.consumed_at) {
+    throw new Error("This OTP has already been used.");
+  }
+
+  const user = db.prepare("SELECT 1 FROM users WHERE role = ? AND mobile = ?").get(role, mobile);
+  if (!user) {
+    throw new Error("No student account matched that mobile number.");
+  }
+
+  db.prepare("UPDATE users SET password = ? WHERE role = ? AND mobile = ?").run(newPassword.trim(), role, mobile);
+  db.prepare("UPDATE password_reset_requests SET consumed_at = ? WHERE id = ?").run(nowIso(), requestId);
+
+  return { ok: true };
+};
 
 const server = http.createServer(async (req, res) => {
   if (!req.url) {
@@ -297,6 +372,19 @@ const server = http.createServer(async (req, res) => {
       }
       db.prepare("INSERT INTO users (role, name, mobile, password) VALUES (?, ?, ?, ?)").run(role, name, mobile, password);
       sendJson(req, res, 201, { session: { role, name, mobile } });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/auth/forgot-password-request") {
+      const { role, mobile } = await readJsonBody(req);
+      sendJson(req, res, 200, requestPasswordReset({ role, mobile }));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/auth/forgot-password-reset") {
+      const { role, mobile, requestId, otp, newPassword } = await readJsonBody(req);
+      resetPasswordWithOtp({ role, mobile, requestId, otp, newPassword });
+      sendJson(req, res, 200, { ok: true });
       return;
     }
 
