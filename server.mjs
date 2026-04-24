@@ -35,12 +35,46 @@ const DEFAULT_USERS = {
   ],
 };
 
-const DEFAULT_TIME_SLOTS = [
-  { id: "slot-1", label: "10:30 AM - 10:45 AM", capacity: 8, booked: 2, active: true },
-  { id: "slot-2", label: "10:45 AM - 11:00 AM", capacity: 10, booked: 4, active: true },
-  { id: "slot-3", label: "11:00 AM - 11:15 AM", capacity: 12, booked: 5, active: true },
-  { id: "slot-4", label: "11:15 AM - 11:30 AM", capacity: 10, booked: 0, active: false },
-];
+const SLOT_INTERVAL_MINUTES = 15;
+const SLOT_COUNT = 4;
+
+const formatSlotTime = (date) =>
+  new Intl.DateTimeFormat("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+
+const getRoundedSlotStart = (baseDate = new Date()) => {
+  const rounded = new Date(baseDate);
+  rounded.setSeconds(0, 0);
+  const minutes = rounded.getMinutes();
+  const remainder = minutes % SLOT_INTERVAL_MINUTES;
+  const minutesToAdd = remainder === 0 ? SLOT_INTERVAL_MINUTES : SLOT_INTERVAL_MINUTES - remainder;
+  rounded.setMinutes(minutes + minutesToAdd);
+  return rounded;
+};
+
+const buildDynamicTimeSlots = (baseDate = new Date()) => {
+  const start = getRoundedSlotStart(baseDate);
+
+  return Array.from({ length: SLOT_COUNT }, (_, index) => {
+    const slotStart = new Date(start.getTime() + index * SLOT_INTERVAL_MINUTES * 60 * 1000);
+    const slotEnd = new Date(slotStart.getTime() + SLOT_INTERVAL_MINUTES * 60 * 1000);
+    const capacities = [8, 10, 12, 10];
+    const bookedCounts = [2, 4, 5, 0];
+    const actives = [true, true, true, false];
+
+    return {
+      id: `slot-${index + 1}`,
+      label: `${formatSlotTime(slotStart)} - ${formatSlotTime(slotEnd)}`,
+      capacity: capacities[index] ?? 8,
+      booked: bookedCounts[index] ?? 0,
+      active: actives[index] ?? true,
+    };
+  });
+};
+
+const DEFAULT_TIME_SLOTS = buildDynamicTimeSlots();
 
 const DEFAULT_MENU_ITEMS = [
   { id: 1, name: "Masala Dosa", cat: "Breakfast", price: 45, time: 8, emoji: "🫓", desc: "Crispy rice crepe with spiced potato filling", popular: true, veg: true, active: true },
@@ -147,6 +181,11 @@ if (countTable("time_slots") === 0) {
   const insertSlot = db.prepare("INSERT INTO time_slots (id, label, capacity, booked, active) VALUES (?, ?, ?, ?, ?)");
   DEFAULT_TIME_SLOTS.forEach((slot) => insertSlot.run(slot.id, slot.label, slot.capacity, slot.booked, slot.active ? 1 : 0));
 }
+
+const updateSlotLabel = db.prepare("UPDATE time_slots SET label = ? WHERE id = ?");
+buildDynamicTimeSlots().forEach((slot) => {
+  updateSlotLabel.run(slot.label, slot.id);
+});
 
 if (countTable("menu_items") === 0) {
   const insertItem = db.prepare("INSERT INTO menu_items (id, name, cat, price, time, emoji, desc, popular, veg, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
